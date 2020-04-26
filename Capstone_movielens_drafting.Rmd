@@ -1,0 +1,342 @@
+---
+title: "Capstone_movielens"
+author: "KateBWilliams"
+date: "April 22, 2020"
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+  pdf_document: default
+  df_print: kable
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+```
+
+
+
+# Introduction: 
+
+The MovieLens data-set contains information on user's ratings of various films over time. This information can be used in order to predict the rating a user might give to a film, which would facilitate movie recommendations on various platforms(i.e. Netflix, Hulu, etc.) 
+
+The objective of this analysis is to establish a predictive algorithm that minimizes the root-mean-squared-error (RMSE).  Minimizing the RMSE is a quantitative measure of the accuracy of the predictions produced by the algorithm, i.e. the smaller the RMSE, the better the algorithm. 
+
+# Methods and Analysis:
+
+The movieLens data set was downloaded from its source and cleaned according to the following code:
+
+```
+################################
+# Create edx set, validation set
+################################
+
+# Note: this process could take a couple of minutes
+
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+
+# MovieLens 10M dataset:
+# https://grouplens.org/datasets/movielens/10m/
+# http://files.grouplens.org/datasets/movielens/ml-10m.zip
+
+
+dl <- tempfile()
+download.file("http://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+
+ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings.dat"))),
+                 col.names = c("userId", "movieId", "rating", "timestamp"))
+
+movies <- str_split_fixed(readLines(unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
+colnames(movies) <- c("movieId", "title", "genres")
+movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(levels(movieId))[movieId],
+                                           title = as.character(title),
+                                           genres = as.character(genres))
+
+movielens <- left_join(ratings, movies, by = "movieId")
+
+# Validation set will be 10% of MovieLens data
+set.seed(1, sample.kind="Rounding")
+# if using R 3.5 or earlier, use `set.seed(1)` instead
+test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
+edx <- movielens[-test_index,]
+temp <- movielens[test_index,]
+
+# Make sure userId and movieId in validation set are also in edx set
+validation <- temp %>% 
+  semi_join(edx, by = "movieId") %>%
+  semi_join(edx, by = "userId")
+
+# Add rows removed from validation set back into edx set
+removed <- anti_join(temp, validation)
+edx <- rbind(edx, removed)
+
+rm(dl, ratings, movies, test_index, temp, movielens, removed)
+```
+```{r capstone movieLens, include = FALSE}
+################################
+# Create edx set, validation set
+################################
+
+# Note: this process could take a couple of minutes
+
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+
+# MovieLens 10M dataset:
+# https://grouplens.org/datasets/movielens/10m/
+# http://files.grouplens.org/datasets/movielens/ml-10m.zip
+
+
+dl <- tempfile()
+download.file("http://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+
+ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings.dat"))),
+                 col.names = c("userId", "movieId", "rating", "timestamp"))
+
+movies <- str_split_fixed(readLines(unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
+colnames(movies) <- c("movieId", "title", "genres")
+movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(levels(movieId))[movieId],
+                                           title = as.character(title),
+                                           genres = as.character(genres))
+
+movielens <- left_join(ratings, movies, by = "movieId")
+
+# Validation set will be 10% of MovieLens data
+set.seed(1, sample.kind="Rounding")
+# if using R 3.5 or earlier, use `set.seed(1)` instead
+test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
+edx <- movielens[-test_index,]
+temp <- movielens[test_index,]
+
+# Make sure userId and movieId in validation set are also in edx set
+validation <- temp %>% 
+  semi_join(edx, by = "movieId") %>%
+  semi_join(edx, by = "userId")
+
+# Add rows removed from validation set back into edx set
+removed <- anti_join(temp, validation)
+edx <- rbind(edx, removed)
+
+rm(dl, ratings, movies, test_index, temp, movielens, removed)
+```
+
+
+## Data exploration:
+
+Users and ratings:
+
+The "average" user has submitted ~129 ratings, although there is wide variability in user rating activity. 
+```{r avg user, echo = FALSE}
+edx %>% group_by(userId) %>% summarize(count = n())%>% summarize( avg = mean(count), median = median(count), st.dev. = sd(count))%>% print.data.frame()
+
+```
+
+
+Although there are some "power users" with reviews in the thousands, the majority of users have reviews in the 10s-100s range.  
+
+```{r user, echo = FALSE}
+edx %>% group_by(userId) %>% summarize(count = n())%>% filter(count <= 500)%>% ggplot(aes(count)) + geom_histogram(binwidth = 10) + labs(x= "No. of ratings", y = "No. of Users")+ theme_light()
+```
+##Movies and ratings:
+
+The "average" movie has 843 ratings, but much like user ratings, there is a large distribution of rating numbers among movies. 
+
+```{r movie ratings, echo = FALSE}
+edx %>% group_by(movieId) %>% summarize(count = n())%>% summarize( avg = mean(count), median = median(count), st.dev. = sd(count))%>% print.AsIs()
+
+```
+
+The code below shows how a number of movies have under 100 ratings total.
+
+```{r movie ratings chart}
+edx %>% group_by(movieId) %>% summarize(count = n())%>% filter( count <= 1000) %>% ggplot(aes(count)) + geom_histogram(binwidth = 10) + labs(x= "No. of ratings", y = "No. of Movies")+ theme_light()
+```
+
+
+Needless to say, the users and movies who have higher numbers of ratings will be easier to predict, with movies and/or users are the very low end of the number of ratings will be difficult to predict. 
+
+
+## `recommenderlab` 
+
+The `recommenderlab` library provides a useful set of algorithms designed for predictive recommendations. 
+```{r}
+library(recommenderlab)
+```
+
+
+```
+library(recommenderlab)
+
+```
+
+
+In order to assess the `edx` data, it must first be converted into a format that is recognized by the packages in the library, namely the `ratingMatrix` format.This is accomplished by first selecting the `userId`, `movieId`, and `ratings` data columns, then coercing them into a `realRatingMatrix`.
+
+```{r}
+temp <- edx %>% select(userId, movieId, rating)
+
+m<- as(temp, "realRatingMatrix")
+
+```
+
+
+Once the correct format has been achieved, and we need to create an `evaluationScheme` in order to run an `evaluate` function. 
+
+```{r}
+scheme <- evaluationScheme(m[1:200], method = "split", train = 0.9, k=1, given = 10)
+```
+
+This method creates the correct object class, as well as a training set for evaluation (note that this is now a subset training set within the original 'edx' training set). Now we can evaluate different algorithms available for recommendation. Note that the default settings of the algorithms include their own normalization based on a 'center' technique. Otherwise, a normalization step would have been included on the data set before this evaluation step. 
+```{r algorithms}
+algorithms <- list(
+  "random items" = list(name="RANDOM", param=NULL),
+  "popular items" = list(name="POPULAR", param=NULL),
+  "user-based CF" = list(name="UBCF", param=list(nn=50)), 
+  "SVD approximation" = list(name="SVD", param=list(k = 50))
+)
+
+```
+```{r evaluate and plot}
+results <- evaluate(scheme, algorithms, type = "ratings")
+plot(results, ylim= c(0,2))
+```
+
+We can see from the plot which algorithm appears to have the lowest RMSE ( the user-based CF). However, none of these have an RMSE of lower that 0.94 in the testing environment, which suggests these algorithms are not very promising wihtout considerabe individual tuning.  
+
+
+## Matrix factorization: `recosystem`
+
+Another favored recommendation algorithm system is the matrix factorization system.  This is available as a library that can be installed for R. 
+
+```{r recosystem}
+library(recosystem)
+```
+
+
+For this analysis, we must create our own train and test sets, and get them into the correct format class for the S4 based 'recosystem' functions to recognize.  
+
+First, we create training and test sets out of the `edx` data set.  This is done similarly to how the `edx` and `validation` sets were created.
+
+```{r warning=FALSE, include=FALSE}
+set.seed(1, sample.kind="Rounding")
+
+test_index <- createDataPartition(y = edx$rating, times = 1, p = 0.1, list = FALSE)
+train_set <- edx[-test_index,]
+temp <- edx[test_index,]
+
+# Make sure userId and movieId in test set are also in train set
+test_set <- temp %>% 
+  semi_join(train_set, by = "movieId") %>%
+  semi_join(train_set, by = "userId")
+
+# Add rows removed from test set back into train set
+removed <- anti_join(temp, test_set)
+train_set <- rbind(train_set, removed)
+
+# remove excess information that clogs up your system
+rm(test_index, temp, removed)
+```
+
+The next step is to coerce the data into an object of class `DataSource`.  We use the `data_memory()` function to achieve this. Note that much like the `recommenderlab`, we need to have a sparse matrix.  We achieve this by inputting the three necessary elements, `useriD`, `movieId`, and `rating`. 
+
+```{r}
+train_data <-  with(train_set, data_memory(user_index = userId,item_index = movieId, rating = rating))
+test_data  <-  with(test_set, data_memory(user_index = userId, item_index = movieId, rating = rating))
+
+```
+
+And then create the model object:
+```{r}
+r <- recosystem::Reco()
+```
+
+  Now we can assess options for tuning the algorithm we would like to train.  Note that this a randomized algorithm, requiring a `set.seed()`. The value `123` is used as a default suggested by the `recosystem` documentation. 
+
+```{r}
+
+set.seed(123, sample.kind = "Rounding")
+
+opts <- r$tune(train_data, opts = list(nthread = 4))
+```
+Note that the tuning options here are using the the default options, except the `nthread` parameter set to 4 to increase processing speed.  However, the **processing time may take more than an hour**.  
+
+From this tuning step, we can now train the algorithm against the training data.
+```{r}
+r$train(train_data, opts = opts$min)
+
+```
+
+You can see a series of tr_rmse values approaching 0.74.  
+
+We can now use the trained algorithm to predict values in the testing data.  The `out_memory()` function allows the output of the results as R objects.
+```{r}
+y_hat <- r$predict(test_data, out_memory())
+```
+
+
+The final step is to calculate the RMSE.  We have to do that by creating our own function for RMSE first. 
+
+```{r}
+RMSE <- function(observed, predicted){
+  sqrt(mean((observed - predicted)^2))
+}
+```
+Then we can call the `RMSE` function for our prediction vs. the test values.
+
+```{r echo=FALSE}
+ RMSE(test_set$rating, y_hat)
+```
+This gives a very promising RMSE.  
+
+# Results:
+
+In order to verify that the Matrix Factorization method gives a satisfactorily low RMSE, we need to train on the full `edx` set, and validate against the `validation` set. Note that this is the only time that we use the 'validation' set in our analysis.
+
+First, both data sets must be converted to `DataSource` class objects. 
+```{r}
+edx_final <-  with(edx, data_memory(user_index = userId, item_index = movieId, rating = rating))
+valid_final <- with(validation, data_memory(user_index = userId, item_index = movieId, rating = rating))
+```
+
+Then the algorithm is trained on the `edx_final` data set, preditions are made on the `valid_final` data set, and the RMSE calculated against the original `validation` set. 
+
+
+```{r}
+r$train(edx_final, opts = opts$min)
+
+y_hat <- r$predict(valid_final, out_memory())
+
+
+```
+```{r}
+print("Final RMSE:")
+RMSE(validation$rating, y_hat)
+```
+
+
+Therefore, the final RMSE is `RMSE(validation$rating, y_hat)`.
+
+
+# Conclusion
+
+As shown by the two different packages available for ratings-based recommendation systems, the Matrix Factorization underlying the 'recosystem' package offers clearly superior predictions, as quantified by its low RMSE on the 'validation' data set. Note that the default options for the tuning parameters were used; it is possible with additional optimization of the tuning parameters, the RMSE could be reduced even further.  
+
+This processing time variable was also a major consideration for not pursuing additonal tuning of the 'recommenderlab' algorithms. Not surprisingly, the 'random' algorihm produced a poor RMSE well above a value of 1.  Interestingly, the 'UBCF' algorithm gave the best RMSE amongst the four that were compared, suggesting that the predicitve value of recommenderlab was influenced most by users rating movies (i.e. those with the highest number of ratings).  
+
+For both analysis methods, given the limitations of processing power on a typical PC laptop, iterative tuning optimization to further reduce the RMSE is outside the scope of this analysis. 
+
+# References and Links:
+
+https://cran.r-project.org/web/packages/recommenderlab/index.html
+
+
+https://cran.r-project.org/package=recosystem
+
+
+
+
